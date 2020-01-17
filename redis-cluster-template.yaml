@@ -82,7 +82,7 @@
               - containerPort: 16379
                 name: gossip
               command: ["/usr/bin/redis-server"]
-              args: ["/opt/redis-confif/redis.conf"]
+              args: ["/opt/redis-config/redis.conf"]
               readinessProbe:
                 exec:
                   command:
