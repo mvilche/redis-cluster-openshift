@@ -1,0 +1,184 @@
+      ##comienzo Template
+    apiVersion: v1
+    kind: Template
+    metadata:
+      name: redis-cluster
+      labels:
+        template: redis-cluster
+        autor: "Martin_Fabrizzio_Vilche"
+      annotations:
+        openshift.io/display-name: "redis-cluster"
+        iconClass: "icon-github"
+        description: >-
+          APACHE redis + ZOOKEEPER + redis MANAGER WEB
+          Martin Fabrizzio Vilche.
+          https://github.com/mvilche.
+        openshift.io/provider-display-name: "Martin Fabrizzio Vilche"
+        openshift.io/documentation-url: "https://github.com/mvilche/wildfly-s2i.git"
+        openshift.io/support-url: "https://github.com/mvilche/wildfly-s2i.git"
+    message: >-         
+
+    objects:
+
+
+  ############################## ZOOKEPEER
+
+
+    - apiVersion: v1
+      data:
+        redis.conf: |-
+          port 6379
+          cluster-enabled yes
+          cluster-config-file /opt/redis-config/nodes.conf
+          cluster-node-timeout 5000
+          appendonly yes
+          appendfilename appendonly.aof
+          dbfilename /opt/redis-data
+      kind: ConfigMap
+      metadata:
+        name: redis-cluster
+
+
+
+    - apiVersion: v1
+      kind: Service
+      metadata:
+        name: redis-cluster
+        labels:
+          app: redis-cluster
+      spec:
+        ports:
+        - port: 6379
+          name: client
+        - port: 16379 
+          name: gossip     
+        clusterIP: None
+        selector:
+          service: redis-cluster
+
+##### redis
+    - apiVersion: apps/v1beta1
+      kind: StatefulSet
+      metadata:
+        name: redis
+        labels:
+          app: redis-cluster
+      spec:
+        serviceName: redis-cluster
+        replicas: 3
+        template:
+          metadata:
+            labels:
+              app: redis-cluster
+            annotations:
+          spec:
+            containers:
+            - name: redis-cluster
+              image: redis:latest
+              imagePullPolicy: Always
+              ports:
+              - containerPort: 6379
+                name: client
+              - containerPort: 16379
+                name: gossip
+              command: ["/usr/bin/redis-server"]
+              args: ["/opt/redis-confif/redis.conf"]
+              readinessProbe:
+                exec:
+                  command:
+                  - sh
+                  - -c
+                  - "redis-cli -h $(hostname) ping"
+                initialDelaySeconds: 15
+                timeoutSeconds: 5
+              livenessProbe:
+                exec:
+                  command:
+                  - sh
+                  - -c
+                  - "redis-cli -h $(hostname) ping"
+                initialDelaySeconds: 20
+                periodSeconds: 3
+              volumeMounts:
+              - name: data
+                mountPath: /data
+                readOnly: false
+                volumeMounts:
+                - name: redis-config
+                  mountPath: /opt/redis-config/redis.conf
+                  subPath: redis.conf
+                  terminationMessagePath: /dev/termination-log
+                  terminationMessagePolicy: File
+            dnsPolicy: ClusterFirst
+            volumes:
+            - name: redis-config
+              configMap:
+                name: redis-cluster
+                key: redis.conf
+            restartPolicy: Always
+            schedulerName: default-scheduler
+            terminationGracePeriodSeconds: 10
+        volumeClaimTemplates:
+        - metadata:
+            name: data
+          spec:
+            accessModes: [ "ReadWriteOnce" ]
+            resources:
+              requests:
+                storage: 5Gi
+
+
+  ###################BUILDCONFIGS
+
+    - apiVersion: v1
+      kind: BuildConfig
+      metadata:
+        labels:
+          app: redis-cluster
+          build: redis-cluster
+        name: redis-cluster
+      spec:
+        failedBuildsHistoryLimit: 5
+        nodeSelector: null
+        output:
+          to:
+            kind: ImageStreamTag
+            name: 'redis:latest'
+        postCommit: {}
+        resources: {}
+        runPolicy: Serial
+        source:
+          contextDir: redis
+          git:
+            ref: master
+            uri: 'https://github.com/mvilche/redis-cluster-openshift.git'
+          type: Git
+        strategy:
+          dockerStrategy:
+            dockerfilePath: Dockerfile
+          type: Docker
+        successfulBuildsHistoryLimit: 5
+        triggers:
+          - type: ConfigChange
+
+
+    - apiVersion: v1
+      kind: ImageStream
+      metadata:
+        labels:
+          app: redis-cluster
+        name: redis
+      spec:
+        lookupPolicy:
+          local: true
+
+
+#######
+  ################PARAMETROS
+    parameters:
+      - name: NAMESPACE
+        displayName: Nombre del proyecto donde esta desplegando el template. Respete maysculas y minúsculas
+        value: ''
+        required: true
+
+  ###############
